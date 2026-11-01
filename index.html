@@ -132,6 +132,20 @@ button { cursor: pointer; }
 .pal-item .more { opacity: 0; border: 0; background: transparent; padding: 2px; border-radius: 6px; color: var(--muted); }
 .pal-item:hover .more, .pal-item.on .more, .pal-item .more:focus-visible { opacity: 1; }
 .pal-empty { padding: 22px 18px; color: var(--muted); text-align: center; }
+/* my collection */
+.coll { border-bottom: 1px solid var(--line); flex: none; }
+.coll summary { padding: 9px 12px; font-weight: 600; cursor: pointer; list-style-position: inside; }
+.coll-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 118px; overflow: auto; padding: 2px 12px 8px; }
+.coll-sw { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,.3); padding: 0; }
+.coll-sw:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
+.coll-sw.has { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coll-actions { padding: 0 12px 10px; }
+.tobuy { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); margin-left: 6px; vertical-align: middle; }
+.swb.own::before { content: "\2713"; position: absolute; left: 4px; top: 4px; width: 15px; height: 15px; border-radius: 50%; background: var(--ok); color: #fff; font: 700 10px/15px var(--f-body); text-align: center; box-shadow: 0 0 0 2px #fff; }
+.meter { display: inline-flex; gap: 3px; vertical-align: middle; }
+.meter i { width: 14px; height: 6px; border-radius: 2px; background: var(--line); }
+.meter i.on { background: var(--accent); }
+.num-in { width: 64px; text-align: right; font-family: var(--f-mono); }
 .info-block { padding: 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .info-block h4 { margin: 0; font: 600 11px var(--f-body); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
@@ -328,6 +342,11 @@ kbd.k { font: 500 11px var(--f-mono); padding: 1px 6px; border: 1px solid var(--
     <section id="paneInfo" class="tabpane" hidden></section>
     <section id="panePal" class="tabpane">
       <div class="cur" id="curBox"></div>
+      <details id="colDet" class="coll" open>
+        <summary id="colSum"></summary>
+        <div id="colGrid" class="coll-grid"></div>
+        <div class="coll-actions"><button class="btn sm" id="btnEditColl"><svg class="i sm"><use href="#i-check"/></svg><span data-t="collEdit"></span></button></div>
+      </details>
       <div class="pal-actions">
         <button class="btn sm primary" id="btnAddColor"><svg class="i sm"><use href="#i-plus"/></svg><span data-t="addColor"></span></button>
         <button class="btn sm" id="btnCleanPal"><svg class="i sm"><use href="#i-trash"/></svg><span data-t="removeUnused"></span></button>
@@ -1354,10 +1373,11 @@ function refreshPalette() {
     const more = h('button', { class: 'more', 'aria-label': t('colorMenu'), onclick: e => { e.stopPropagation(); colorMenu(more, v, used + bu); } }, icon('more', 'sm'));
     list.append(h('li', { class: 'pal-item' + (ui.color === v ? ' on' : ''), tabindex: 0, onclick: () => setColor(v), onkeydown: e => { if (e.key === 'Enter') setColor(v); }, oncontextmenu: e => { e.preventDefault(); colorMenu(more, v, used + bu); } },
       h('div', { class: 'sw' }, swatch(rc, pe.sym, 30)),
-      h('div', { class: 'nm' }, h('b', {}, 'Rico ' + rc.id + (rc.approx ? ' ≈' : '')), h('span', {}, [rc.dmc ? 'DMC ' + rc.dmc : null, colorName(rc)].filter(Boolean).join(' · '))),
+      h('div', { class: 'nm' }, h('b', {}, 'Rico ' + rc.id + (rc.approx ? ' ≈' : ''), owned.size && !owned.has(rc.id) ? h('i', { class: 'tobuy', title: t('notOwned') }) : null), h('span', {}, [rc.dmc ? 'DMC ' + rc.dmc : null, colorName(rc)].filter(Boolean).join(' · '))),
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '2px' } }, h('span', { class: 'ct', title: t('stitches') }, used || (bu ? '↗' : '0')), more)));
   });
   $('btnCleanPal').disabled = !P.palette.some((_, i) => !st.full[i] && !st.half[i] && !st.back[i]);
+  refreshCollection();
 }
 function colorMenu(anchor, v, usedCount) {
   showMenu(anchor, [
@@ -1411,40 +1431,77 @@ function sortedRico(mode) {
   else if (mode === 'hue') a.sort((p, q) => { const gp = p.hsl[1] < 0.1, gq = q.hsl[1] < 0.1; if (gp !== gq) return gp ? -1 : 1; return gp ? q.lab[0] - p.lab[0] : p.hsl[0] - q.hsl[0] || q.lab[0] - p.lab[0]; });
   return a;
 }
+/* ---------- "my collection": the Rico colours the user owns (stored in this browser) ---------- */
+const owned = new Set();
+let pickScope = LS.get('sa.scope') === 'owned' ? 'owned' : 'all';
+function loadOwned() { try { JSON.parse(LS.get('sa.owned') || '[]').forEach(id => { if (RICO_BY_ID.has(id)) owned.add(id); }); } catch (e) { /* no stored collection */ } }
+const saveOwned = () => LS.set('sa.owned', JSON.stringify([...owned]));
+function refreshCollection() {
+  const grid = $('colGrid'); if (!grid) return;
+  $('colSum').textContent = t('myCollection') + ' · ' + owned.size; grid.textContent = '';
+  if (!owned.size) { grid.append(h('div', { class: 'hint' }, t('collEmpty'))); return; }
+  for (const rc of RICO) {
+    if (!owned.has(rc.id)) continue; const has = P.palette.some(p => p.id === rc.id);
+    grid.append(h('button', { class: 'coll-sw' + (has ? ' has' : ''), style: { background: rc.css }, title: 'Rico ' + rc.id + ' · ' + colorName(rc), 'aria-label': 'Rico ' + rc.id,
+      onclick: () => { setColor(ensureColor(rc.id)); } }));
+  }
+}
+
+/* ---------- Rico colour picker (add / replace / edit collection) ---------- */
 function openColorPicker(opts) {
-  opts = opts || { mode: 'add' }; let sort = 'card', q = ''; const replacing = opts.mode === 'replace';
+  opts = opts || { mode: 'add' }; const mode = opts.mode, replacing = mode === 'replace', collecting = mode === 'collection';
+  let sort = 'card', q = '', scope = collecting ? 'all' : (owned.size && pickScope === 'owned' ? 'owned' : 'all');
   const grid = h('div', { class: 'swatches' }), nearBox = h('div', { class: 'nearest' }), search = h('input', { type: 'search', placeholder: t('searchColor'), 'aria-label': t('searchColor'), id: 'pickSearch' });
+  const scopeBox = h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } });
+  const countEl = h('div', { class: 'hint', id: 'collCount' }), listBox = h('textarea', { id: 'collText', rows: 3, spellcheck: 'false', style: { width: '100%', fontFamily: 'var(--f-mono)' } });
+  const pool = () => { const p = scope === 'owned' ? RICO.filter(c => owned.has(c.id)) : RICO; return p.length ? p : RICO; };
+  function ownedChanged() { saveOwned(); drawGrid(); drawCount(); refreshPalette(); refreshInfo(); }
   const pick = rc => {
+    if (collecting) { owned.has(rc.id) ? owned.delete(rc.id) : owned.add(rc.id); ownedChanged(); return; }
     if (replacing) { replaceColor(opts.v, rc.id); closeDialog(); toast(t('replaced', 'Rico ' + rc.id)); return; }
     const had = P.palette.some(p => p.id === rc.id); const v = ensureColor(rc.id); setColor(v); drawGrid(); if (!had) toast(t('added', 'Rico ' + rc.id), 1400);
   };
   const tip = rc => 'Rico ' + rc.id + ' · ' + colorName(rc) + '\n' + equiv(rc) + (rc.approx ? '\n' + t('approx') : '');
   function drawGrid() {
     grid.textContent = ''; const term = q.trim().toLowerCase();
-    const list = sortedRico(sort).filter(rc => !term || ('rico ' + rc.id + ' dmc ' + rc.dmc + ' anchor ' + rc.anchor + ' ' + rc.name + ' ' + colorName(rc)).toLowerCase().includes(term));
-    if (!list.length) grid.append(h('div', { class: 'hint' }, t('noMatch')));
+    const list = sortedRico(sort).filter(rc => (scope === 'all' || owned.has(rc.id)) && (!term || ('rico ' + rc.id + ' dmc ' + rc.dmc + ' anchor ' + rc.anchor + ' ' + rc.name + ' ' + colorName(rc)).toLowerCase().includes(term)));
+    if (!list.length) grid.append(h('div', { class: 'hint' }, scope === 'owned' && !term ? t('collEmpty') : t('noMatch')));
     for (const rc of list) {
-      const has = P.palette.some(p => p.id === rc.id), cur = ui.color && palRico(ui.color) === rc;
-      grid.append(h('button', { class: 'swb' + (has ? ' has' : '') + (cur ? ' cur-c' : ''), style: { background: rc.css, color: contrastInk(rc.rgb) }, title: tip(rc), 'aria-label': tip(rc), onclick: () => pick(rc) }, rc.id));
+      const has = P.palette.some(p => p.id === rc.id), cur = ui.color && palRico(ui.color) === rc, own = owned.has(rc.id);
+      grid.append(h('button', { class: 'swb' + (!collecting && has ? ' has' : '') + (cur && !collecting ? ' cur-c' : '') + (own && (collecting || scope === 'all') ? ' own' : ''), style: { background: rc.css, color: contrastInk(rc.rgb) }, title: tip(rc), 'aria-label': tip(rc), onclick: () => pick(rc) }, rc.id));
     }
   }
   search.addEventListener('input', () => { q = search.value; drawGrid(); });
   const sortSeg = h('div', { class: 'seg' }); const drawSort = () => { sortSeg.textContent = ''; for (const [k, l] of [['card', t('sortCard')], ['hue', t('sortHue')], ['light', t('sortLight')]]) sortSeg.append(h('button', { class: sort === k ? 'on' : '', onclick: () => { sort = k; drawSort(); drawGrid(); } }, l)); }; drawSort();
-  const hexIn = h('input', { type: 'color', value: '#c8503c', id: 'pickHex', 'aria-label': t('matchAny') });
-  const drawNear = () => {
-    nearBox.textContent = ''; const rgb = hex2rgb(hexIn.value.slice(1));
-    for (const rc of nearestRico(rgb, 6, RICO)) nearBox.append(h('button', { class: 'btn sm', title: tip(rc), onclick: () => pick(rc) }, h('span', { class: 'chip', style: { border: 0, padding: 0 } }, h('i', { style: { background: rc.css } })), 'Rico ' + rc.id));
+  const drawScope = () => {
+    scopeBox.textContent = ''; if (collecting) return;
+    if (!owned.size) { scopeBox.append(h('button', { class: 'btn sm', onclick: () => openColorPicker({ mode: 'collection' }) }, icon('check', 'sm'), t('setupColl'))); return; }
+    scopeBox.append(h('div', { class: 'seg' }, ...[['all', t('scopeAll')], ['owned', t('scopeOwned', owned.size)]].map(([k, l]) =>
+      h('button', { class: scope === k ? 'on' : '', onclick: () => { scope = k; pickScope = k; LS.set('sa.scope', k); drawScope(); drawGrid(); drawNear(); } }, l))));
   };
-  hexIn.addEventListener('input', drawNear); drawNear(); drawGrid();
-  const body = [
-    h('div', { class: 'pick-tools' }, search, sortSeg),
-    h('div', { class: 'hint' }, replacing ? t('replaceHint') : t('pickHint')),
-    grid,
-    h('div', { class: 'info-block', style: { border: '1px solid var(--line)', borderRadius: '12px', background: 'var(--panel-2)' } },
-      h('h4', {}, t('matchAny')), h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } }, hexIn, nearBox),
-      h('div', { class: 'hint' }, t('matchHint'))),
-  ];
-  openDialog(makeDlg(replacing ? t('replaceColor') + ' · Rico ' + palRico(opts.v).id : t('addColor'), body, h('button', { class: 'btn primary', onclick: closeDialog }, t('done')), 'mid'));
+  const hexIn = h('input', { type: 'color', value: '#c8503c', id: 'pickHex', 'aria-label': t('matchAny') });
+  function drawNear() {
+    nearBox.textContent = ''; const rgb = hex2rgb(hexIn.value.slice(1));
+    for (const rc of nearestRico(rgb, 6, pool())) nearBox.append(h('button', { class: 'btn sm', title: tip(rc), onclick: () => pick(rc) }, h('span', { class: 'chip', style: { border: 0, padding: 0 } }, h('i', { style: { background: rc.css } })), 'Rico ' + rc.id));
+  }
+  function drawCount() { countEl.textContent = t('collCount', owned.size, RICO.length); listBox.value = RICO.filter(c => owned.has(c.id)).map(c => c.id).join(' '); }
+  hexIn.addEventListener('input', drawNear);
+  const tool = (label, fn) => h('button', { class: 'btn sm', onclick: fn }, label);
+  const collTools = collecting ? h('div', { class: 'info-block', style: { border: '1px solid var(--line)', borderRadius: '12px', background: 'var(--panel-2)' } },
+    h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+      tool(t('collAll'), () => { RICO.forEach(c => owned.add(c.id)); ownedChanged(); }), tool(t('collNone'), () => { owned.clear(); ownedChanged(); }),
+      tool(t('collFromPattern'), () => { P.palette.forEach(p => owned.add(p.id)); ownedChanged(); })),
+    h('label', { for: 'collText', class: 'hint' }, t('collListLabel')), listBox,
+    h('div', {}, tool(t('collApply'), () => {
+      const ids = (listBox.value.match(/\d+/g) || []).map(x => x.padStart(3, '0')); let bad = 0; owned.clear();
+      for (const id of ids) RICO_BY_ID.has(id) ? owned.add(id) : bad++; ownedChanged(); toast(t('collApplied', owned.size, bad));
+    }))) : null;
+  const matchBlock = collecting ? null : h('div', { class: 'info-block', style: { border: '1px solid var(--line)', borderRadius: '12px', background: 'var(--panel-2)' } },
+    h('h4', {}, t('matchAny')), h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' } }, hexIn, nearBox), h('div', { class: 'hint' }, t('matchHint')));
+  drawScope(); drawGrid(); if (!collecting) drawNear(); else drawCount();
+  const body = [h('div', { class: 'pick-tools' }, search, sortSeg), scopeBox, h('div', { class: 'hint' }, collecting ? t('collHint') : replacing ? t('replaceHint') : t('pickHint')), collecting ? countEl : null, grid, collTools, matchBlock];
+  const title = collecting ? t('myCollection') : replacing ? t('replaceColor') + ' · Rico ' + palRico(opts.v).id : t('addColor');
+  openDialog(makeDlg(title, body, h('button', { class: 'btn primary', onclick: closeDialog }, t('done')), 'mid'), () => { refreshCollection(); });
   setTimeout(() => search.focus(), 30);
 }
 
@@ -1473,17 +1530,17 @@ function refreshInfo() {
   const kv = $('infKv'); if (!kv) return;
   const st = stats(), cm = n => n / P.fabric.count * 2.54;
   const totFull = st.full.reduce((a, b) => a + b, 0), totHalf = st.half.reduce((a, b) => a + b, 0), used = P.palette.filter((_, i) => st.full[i] || st.half[i] || st.back[i]).length;
-  let totalSk = 0; const rows = [];
+  let totalSk = 0, buy = 0; const rows = [];
   P.palette.forEach((pe, i) => {
     if (!(st.full[i] || st.half[i] || st.back[i])) return;
-    const rc = RICO_BY_ID.get(pe.id), u = threadUse(st, i), sk = rc.metal ? Math.ceil(u.skeins) : Math.max(1, Math.ceil(u.skeins - 0.05)); totalSk += rc.metal ? 0 : sk;
-    rows.push(h('tr', {}, h('td', {}, h('span', { class: 'dot', style: { background: rc.css } }), 'Rico ' + rc.id), h('td', {}, swatchSym(pe.sym)), h('td', { class: 'r' }, st.full[i] + (st.half[i] ? ' +' + st.half[i] + '½' : '') + (st.back[i] ? ' · ' + Math.round(st.back[i]) + 'b' : '')),
+    const rc = RICO_BY_ID.get(pe.id), u = threadUse(st, i), sk = rc.metal ? Math.ceil(u.skeins) : Math.max(1, Math.ceil(u.skeins - 0.05)); totalSk += rc.metal ? 0 : sk; if (owned.size && !owned.has(rc.id)) buy++;
+    rows.push(h('tr', {}, h('td', {}, h('span', { class: 'dot', style: { background: rc.css } }), 'Rico ' + rc.id, owned.size && !owned.has(rc.id) ? h('i', { class: 'tobuy', title: t('notOwned') }) : null), h('td', {}, swatchSym(pe.sym)), h('td', { class: 'r' }, st.full[i] + (st.half[i] ? ' +' + st.half[i] + '½' : '') + (st.back[i] ? ' · ' + Math.round(st.back[i]) + 'b' : '')),
       h('td', { class: 'r', title: fmt1(u.skeins) + (rc.metal ? ' ' + t('spools') : '') }, rc.metal ? sk + ' ' + t('spool') : sk)));
   });
   const wcm = cm(P.w), hcm = cm(P.h);
   kv.textContent = '';
   kv.append(...[[t('stitchesWH'), P.w + ' × ' + P.h], [t('designSize'), fmt1(wcm) + ' × ' + fmt1(hcm) + ' cm'], [t('inches'), fmt1(wcm / 2.54) + ' × ' + fmt1(hcm / 2.54) + ' in'],
-    [t('fabricNeeded'), fmt1(wcm + 10) + ' × ' + fmt1(hcm + 10) + ' cm'], [t('crossStitches'), totFull.toLocaleString() + (totHalf ? ' (+' + totHalf + '½)' : '')], [t('colorsUsed'), String(used)], [t('backLen'), Math.round(st.back.reduce((a, b) => a + b, 0)) + ' ' + t('units')]]
+    [t('fabricNeeded'), fmt1(wcm + 10) + ' × ' + fmt1(hcm + 10) + ' cm'], [t('crossStitches'), totFull.toLocaleString() + (totHalf ? ' (+' + totHalf + '½)' : '')], [t('colorsUsed'), String(used)], [t('backLen'), Math.round(st.back.reduce((a, b) => a + b, 0)) + ' ' + t('units')]].concat(owned.size ? [[t('toBuyN'), String(buy)]] : [])
     .flatMap(([k, v]) => [h('span', {}, k), h('span', {}, v)]));
   const box = $('matBox'); box.textContent = '';
   box.append(rows.length ? h('table', { class: 'mat' }, h('thead', {}, h('tr', {}, h('th', {}, t('color')), h('th', {}, t('symbol')), h('th', { class: 'r' }, t('stitches')), h('th', { class: 'r' }, t('skeins')))), h('tbody', {}, ...rows),
@@ -1576,7 +1633,7 @@ function applyLang() {
    Photo -> pattern importer
    pipeline:  crop + resample  ->  adjust  ->  background mask  ->  pick best Rico colours  ->  map / dither  ->  clean up
    ============================================================ */
-const IMP_DEFAULT = { width: 80, colors: 16, dither: 'none', amt: 80, bright: 0, contrast: 10, sat: 10, auto: false, clean: 2, skipBg: false, bgTol: 16, bgColor: null, palSrc: 'all', count: 14 };
+const IMP_DEFAULT = { width: 80, colors: 16, dither: 'none', amt: 80, bright: 0, contrast: 0, sat: 0, auto: true, clean: 2, skipBg: false, bgTol: 16, bgColor: null, palSrc: 'all', count: 14 };
 let imp = null;
 
 function makeSampleImage() {
@@ -1603,6 +1660,7 @@ async function loadImageFile(file) {
 
 function openImporter(file, sample) {
   imp = { ...IMP_DEFAULT, src: null, crop: { x: 0, y: 0, w: 1, h: 1 }, cache: {}, title: '', pickBg: false, out: null, chosen: [] };
+  const savedPal = LS.get('sa.impPal'); imp.palSrc = (savedPal === 'owned' || (!savedPal && owned.size)) && owned.size ? 'owned' : (savedPal === 'project' ? 'project' : 'all');
   const $$ = id => document.getElementById(id);
   const dropZone = h('div', { class: 'drop', id: 'impDrop' },
     icon('photo'), h('div', {}, h('b', {}, t('imp.dropTitle')), h('div', { class: 'hint' }, t('imp.dropHint'))),
@@ -1619,19 +1677,31 @@ function openImporter(file, sample) {
     return h('div', { class: 'ctl', id: id + 'Wrap' }, h('div', { class: 'row' }, h('label', { for: id }, label), val), inp);
   };
   const selCtl = (label, id, opts, key, cb) => { const s = h('select', { id }, ...opts.map(([v, l]) => h('option', { value: v }, l))); s.value = imp[key]; s.addEventListener('change', () => { imp[key] = s.value; if (cb) cb(); run(); }); return h('div', { class: 'ctl' }, h('label', { for: id }, label), s); };
+  const numIn = h('input', { type: 'number', id: 'impColorsNum', class: 'num-in', min: 2, max: 60, value: imp.colors, 'aria-label': t('imp.colors') });
+  const rng = h('input', { type: 'range', id: 'impColors', min: 2, max: 60, step: 1, value: imp.colors });
+  const setK = n => { n = clamp(Math.round(+n) || 2, 2, 60); imp.colors = n; rng.value = n; numIn.value = n; run(); };
+  rng.addEventListener('input', () => setK(rng.value)); numIn.addEventListener('change', () => setK(numIn.value));
+  const sugBtn = h('button', { class: 'btn sm primary', id: 'impSuggest', title: t('imp.suggestTip'), onclick: () => { if (imp.suggest) setK(imp.suggest); } }, icon('check', 'sm'), t('imp.suggest'));
+  const colorBox = h('div', { class: 'ctl', id: 'impColorsWrap' },
+    h('div', { class: 'row' }, h('label', { for: 'impColorsNum' }, t('imp.colors')), numIn), rng,
+    h('div', { class: 'chips' }, ...[8, 12, 16, 24, 32, 48].map(n => h('button', { class: 'btn sm', onclick: () => setK(n) }, String(n))), sugBtn),
+    h('div', { class: 'hint', id: 'impQuality' }));
+  const palSel = h('select', { id: 'impPalSrc' }, h('option', { value: 'all' }, t('imp.palAll')), h('option', { value: 'owned', disabled: owned.size ? null : true }, t('imp.palOwned', owned.size)), h('option', { value: 'project' }, t('imp.palProject')));
+  palSel.value = imp.palSrc; palSel.addEventListener('change', () => { imp.palSrc = palSel.value; LS.set('sa.impPal', imp.palSrc); run(); });
+  const palCtl = h('div', { class: 'ctl' }, h('label', { for: 'impPalSrc' }, t('imp.palSrc')), palSel, owned.size ? null : h('div', { class: 'hint' }, t('imp.collHint')));
   const side = h('div', { class: 'imp-side', id: 'impSide' },
     h('div', { class: 'ctl' }, h('label', { for: 'impTitle' }, t('titleLbl')), h('input', { type: 'text', id: 'impTitle', maxlength: 80, placeholder: t('untitled'), oninput: e => { imp.title = e.target.value; } })),
     ctl(t('imp.width'), 'impWidth', 10, 250, 'width', v => v + ' ' + t('imp.st')), info,
     selCtl(t('fabric'), 'impCount', FABRIC_COUNTS.map(n => [n, n + ' ct']), 'count', () => { imp.count = +imp.count; }),
     h('div', { class: 'tab-sep', style: { borderTop: '1px solid var(--line)' } }),
-    ctl(t('imp.colors'), 'impColors', 2, 60, 'colors'),
-    selCtl(t('imp.palSrc'), 'impPalSrc', [['all', t('imp.palAll')], ['project', t('imp.palProject')]], 'palSrc'),
+    colorBox,
+    palCtl,
     selCtl(t('imp.dither'), 'impDither', [['none', t('imp.dNone')], ['fs', 'Floyd–Steinberg'], ['atk', 'Atkinson']], 'dither', () => { $$('impAmtWrap').hidden = imp.dither === 'none'; }),
     ctl(t('imp.amt'), 'impAmt', 10, 100, 'amt', v => v + '%'),
     ctl(t('imp.clean'), 'impClean', 0, 10, 'clean', v => v < 2 ? t('off') : '≤ ' + (v - 1)),
     h('div', { class: 'tab-sep', style: { borderTop: '1px solid var(--line)' } }),
     ctl(t('imp.bright'), 'impBright', -60, 60, 'bright'), ctl(t('imp.contrast'), 'impContrast', -60, 60, 'contrast'), ctl(t('imp.sat'), 'impSat', -80, 80, 'sat'),
-    h('label', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('input', { type: 'checkbox', id: 'impAuto', onchange: e => { imp.auto = e.target.checked; run(); } }), t('imp.auto')),
+    h('label', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('input', { type: 'checkbox', id: 'impAuto', checked: imp.auto ? true : null, onchange: e => { imp.auto = e.target.checked; run(); } }), t('imp.auto')),
     h('div', { class: 'tab-sep', style: { borderTop: '1px solid var(--line)' } }),
     h('label', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('input', { type: 'checkbox', id: 'impSkipBg', onchange: e => { imp.skipBg = e.target.checked; $$('impBgBox').hidden = !imp.skipBg; run(); } }), t('imp.skipBg')),
     h('div', { id: 'impBgBox', hidden: true, style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
@@ -1723,7 +1793,8 @@ function process() {
     const px = resample(o.src, cr, w, h), n = w * h, rgb = new Float32Array(n * 3), alpha = new Uint8Array(n);
     let lo = 0, hi = 255;
     if (o.auto) { const hist = new Uint32Array(256); for (let i = 0; i < n; i++) hist[Math.round(0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2])]++;
-      let a = 0; while (lo < 254 && a + hist[lo] < n * 0.01) a += hist[lo++]; a = 0; while (hi > lo + 8 && a + hist[hi] < n * 0.01) a += hist[hi--]; }
+      let a = 0; while (lo < 254 && a + hist[lo] < n * 0.01) a += hist[lo++]; a = 0; while (hi > lo + 8 && a + hist[hi] < n * 0.01) a += hist[hi--];
+      lo = Math.min(lo, 40); hi = Math.max(hi, 215); }   // gentle: only fixes flat pictures, never crushes mid-tones
     const sc = 255 / Math.max(1, hi - lo), cf = 1 + o.contrast / 100, sf = 1 + o.sat / 100;
     for (let i = 0; i < n; i++) {
       alpha[i] = px[i * 4 + 3] < 128 ? 1 : 0; let r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
@@ -1736,11 +1807,11 @@ function process() {
   }
   const kB = kA + '|' + o.skipBg + '|' + o.bgTol + '|' + (o.bgColor || '');
   if (C.kB !== kB) { C.mask = backgroundMask(C.rgb, C.alpha, w, h, o); C.kB = kB; C.kC = null; }
-  const kC = kB + '|' + o.colors + '|' + o.palSrc;
-  if (C.kC !== kC) { C.chosen = pickColors(C.rgb, C.mask, w, h, o); C.kC = kC; C.kD = null; }
-  const kD = kC + '|' + o.dither + '|' + o.amt + '|' + o.clean;
-  if (C.kD !== kD) { C.out = mapColors(C.rgb, C.mask, w, h, C.chosen, o); C.kD = kD; }
-  o.out = C.out; o.chosen = C.chosen; drawOut();
+  const kC = kB + '|' + o.palSrc;
+  if (C.kC !== kC) { const r = pickColors(C.rgb, C.mask, w, h, o); C.order = r.order; C.errs = r.errs; C.floor = r.floor; C.kC = kC; C.kD = null; }
+  const K = Math.max(1, Math.min(o.colors, C.order.length)), kD = kC + '|' + K + '|' + o.dither + '|' + o.amt + '|' + o.clean;
+  if (C.kD !== kD) { C.chosen = C.order.slice(0, K); C.out = mapColors(C.rgb, C.mask, w, h, C.chosen, o); C.kD = kD; }
+  o.K = K; o.out = C.out; o.chosen = C.chosen; o.errs = C.errs; o.floor = C.floor; o.suggest = elbowK(C.errs); drawOut(); updateQuality();
 }
 
 function backgroundMask(rgb, alpha, w, h, o) {
@@ -1763,28 +1834,56 @@ function backgroundMask(rgb, alpha, w, h, o) {
   return mask;
 }
 
-// choose the K Rico colours that together approximate the picture best (greedy facility location in Lab)
+// colours the importer may use: all Rico colours, only the user's collection, or the current pattern's palette (metallics never)
+function importPool(src) {
+  let p = PHOTO_SAFE;
+  if (src === 'owned') p = PHOTO_SAFE.filter(c => owned.has(c.id));
+  else if (src === 'project' && P.palette.length) p = P.palette.map(x => RICO_BY_ID.get(x.id));
+  return p.length ? p : PHOTO_SAFE;
+}
+
+// Greedy "best fit" palette: each step adds the Rico colour that lowers the picture's colour error the most (in Lab).
+// The result is an ordered list, so any colour count is just a prefix of it. errs[k] is the mean colour error with k+1 colours.
 function pickColors(rgb, mask, w, h, o) {
-  const pool = (o.palSrc === 'project' && P.palette.length) ? P.palette.map(p => RICO_BY_ID.get(p.id)) : PHOTO_SAFE;
-  const K = Math.min(o.colors, pool.length), n = w * h, buckets = new Map();
+  const pool = importPool(o.palSrc), n = w * h, buckets = new Map();
   for (let i = 0; i < n; i++) {
     if (mask[i]) continue; const r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2], key = ((r | 0) >> 3 << 10) | ((g | 0) >> 3 << 5) | ((b | 0) >> 3);
     const e = buckets.get(key); if (e) { e[0]++; e[1] += r; e[2] += g; e[3] += b; } else buckets.set(key, [1, r, g, b]);
   }
   let list = [...buckets.values()]; if (list.length > 3000) list = list.sort((a, b) => b[0] - a[0]).slice(0, 3000);
-  const M = list.length, PN = pool.length; if (!M) return pool.slice(0, 1);
-  const wgt = new Float32Array(M), D = new Float32Array(M * PN), lab = new Float32Array(3);
+  const M = list.length, PN = pool.length; if (!M) return { order: pool.slice(0, 1), errs: [0], floor: 0 };
+  const wgt = new Float32Array(M), cnt = new Float32Array(M), D = new Float32Array(M * PN), lab = new Float32Array(3); let total = 0;
   for (let u = 0; u < M; u++) {
-    const e = list[u]; wgt[u] = Math.pow(e[0], 0.85); labInto(e[1] / e[0], e[2] / e[0], e[3] / e[0], lab, 0);
+    const e = list[u]; cnt[u] = e[0]; total += e[0]; wgt[u] = Math.pow(e[0], 0.85); labInto(e[1] / e[0], e[2] / e[0], e[3] / e[0], lab, 0);
     for (let c = 0; c < PN; c++) { const l = pool[c].lab; D[u * PN + c] = Math.hypot(lab[0] - l[0], lab[1] - l[1], lab[2] - l[2]); }
   }
-  const best = new Float32Array(M).fill(220), chosen = [], taken = new Uint8Array(PN);
-  for (let k = 0; k < K; k++) {
+  // best error any Rico colour set could reach for this picture (all colours available); the match meter is measured against it
+  let floor = 0; for (let u = 0; u < M; u++) { const e = list[u]; labInto(e[1] / e[0], e[2] / e[0], e[3] / e[0], lab, 0); let m = 1e9;
+    for (const c of PHOTO_SAFE) { const d = Math.hypot(lab[0] - c.lab[0], lab[1] - c.lab[1], lab[2] - c.lab[2]); if (d < m) m = d; } floor += cnt[u] * m; } floor /= total;
+  const best = new Float32Array(M).fill(220), order = [], errs = [], taken = new Uint8Array(PN), kmax = Math.min(60, PN);
+  for (let k = 0; k < kmax; k++) {
     let bc = -1, bg = -1;
     for (let c = 0; c < PN; c++) { if (taken[c]) continue; let gain = 0; for (let u = 0; u < M; u++) { const d = best[u] - D[u * PN + c]; if (d > 0) gain += wgt[u] * d; } if (gain > bg) { bg = gain; bc = c; } }
-    if (bc < 0 || bg <= 0) break; taken[bc] = 1; chosen.push(pool[bc]); for (let u = 0; u < M; u++) if (D[u * PN + bc] < best[u]) best[u] = D[u * PN + bc];
+    if (bc < 0 || bg <= 0) break; taken[bc] = 1; order.push(pool[bc]);
+    let err = 0; for (let u = 0; u < M; u++) { if (D[u * PN + bc] < best[u]) best[u] = D[u * PN + bc]; err += cnt[u] * best[u]; } errs.push(err / total);
   }
-  return chosen;
+  if (!order.length) return { order: pool.slice(0, 1), errs: [0], floor: 0 };
+  return { order, errs, floor };
+}
+
+// the colour count after which extra colours stop paying off (average gain over the next two colours drops below a small threshold)
+function elbowK(errs) {
+  const n = errs.length; if (n <= 4) return n;
+  const thr = Math.max(0.15, errs[0] * 0.004);
+  for (let k = 4; k <= n - 2; k++) if ((errs[k - 1] - errs[k + 1]) / 2 < thr) return k;
+  return n;
+}
+function updateQuality() {
+  const o = imp, el = document.getElementById('impQuality'); if (!el || !o.errs) return;
+  const e = o.errs[Math.min(o.K, o.errs.length) - 1], excess = Math.max(0, e - (o.floor || 0)), bars = excess < 1.5 ? 5 : excess < 3 ? 4 : excess < 5 ? 3 : excess < 8 ? 2 : 1;
+  el.textContent = ''; el.append(h('span', { class: 'meter', title: 'ΔE ' + e.toFixed(1) + ' (' + t('imp.bestPossible') + ' ' + (o.floor || 0).toFixed(1) + ')' }, ...[1, 2, 3, 4, 5].map(i => h('i', { class: i <= bars ? 'on' : '' }))), ' ' + t('imp.quality', t('imp.q' + bars)) + ' · ' + t('imp.suggested', o.suggest));
+  const pool = importPool(o.palSrc); if (pool.length < o.colors) el.append(h('div', {}, t('imp.poolSmall', pool.length)));
+  const sb = document.getElementById('impSuggest'); if (sb) sb.lastChild.textContent = t('imp.suggest') + ' (' + o.suggest + ')';
 }
 
 function mapColors(rgb, mask, w, h, chosen, o) {
@@ -2011,8 +2110,8 @@ async function buildPng(o) {
 }
 function buildCsv() {
   const rows = legendRows(), q = s => '"' + String(s).replace(/"/g, '""') + '"';
-  const head = ['Rico', 'DMC', 'Anchor', t('pdf.name'), t('symbol'), t('stitches'), t('halfStitches'), t('backLen'), t('skeins') + ' (≈)'];
-  const lines = [head.map(q).join(';')].concat(rows.map(r => [r.rc.id, r.rc.dmc, r.rc.anchor, colorName(r.rc), r.sym.slice(2), r.full, r.half, Math.round(r.back * 10) / 10, (Math.round(r.skeins * 10) / 10).toString().replace('.', lang === 'de' ? ',' : '.')].map(q).join(';')));
+  const head = ['Rico', 'DMC', 'Anchor', t('pdf.name'), t('symbol'), t('stitches'), t('halfStitches'), t('backLen'), t('skeins') + ' (≈)'].concat(owned.size ? [t('owned')] : []);
+  const lines = [head.map(q).join(';')].concat(rows.map(r => [r.rc.id, r.rc.dmc, r.rc.anchor, colorName(r.rc), r.sym.slice(2), r.full, r.half, Math.round(r.back * 10) / 10, (Math.round(r.skeins * 10) / 10).toString().replace('.', lang === 'de' ? ',' : '.')].concat(owned.size ? [owned.has(r.rc.id) ? t('yes') : t('no')] : []).map(q).join(';')));
   return new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
 }
 
@@ -2071,7 +2170,7 @@ const I18N = {
     'hint.back': 'Click to start a line, click again to continue. Esc, Enter or right-click ends it.', 'hint.bserase': 'Click or drag over a backstitch line to remove it.',
     'hint.finish': 'Finish / cancel', 'hint.pan': 'Drag to move the view. Scroll to zoom.', 'hint.pick': 'Click a stitch or line to use its color.',
     'hint.select': 'Drag to select. Drag the selection to move it. Enter places it.', 'hint.shift': 'Shift keeps it square or round.',
-    'imp.amt': 'Dither strength', 'imp.another': 'Choose another photo', 'imp.auto': 'Auto levels', 'imp.bgAuto': 'Auto (edges)', 'imp.bgPicked': 'Picked', 'imp.bgTol': 'Background tolerance',
+    'imp.amt': 'Dither strength', 'imp.another': 'Choose another photo', 'imp.auto': 'Auto-enhance (stretch tones)', 'imp.bgAuto': 'Auto (edges)', 'imp.bgPicked': 'Picked', 'imp.bgTol': 'Background tolerance',
     'imp.bright': 'Brightness', 'imp.choose': 'Choose photo', 'imp.clean': 'Remove specks', 'imp.colors': 'Number of colors', 'imp.cols': 'colors', 'imp.contrast': 'Contrast',
     'imp.create': 'Create pattern', 'imp.created': 'Pattern created: {0} Rico colors, {1} stitches.', 'imp.cropHint': 'drag to crop', 'imp.dNone': 'None (flat colors)', 'imp.dither': 'Dithering',
     'imp.dropHint': 'Drop a photo here, paste one, or choose a file. It stays on your device.', 'imp.dropTitle': 'Turn a photo into a pattern', 'imp.fullImage': 'Full image',
@@ -2102,6 +2201,14 @@ const I18N = {
     'tool.pan': 'Move view', 'tool.bsdraw': 'Draw backstitch', 'tool.bserase': 'Erase backstitch', 'tool.bspick': 'Pick color', totalSkeins: 'Total skeins (approx.)', undo: 'Undo', units: 'cells',
     untitled: 'Untitled pattern', viewBlocks: 'Blocks', viewBoth: 'Both', viewMode: 'View', viewSymbols: 'Symbols', viewThreads: 'Threads',
     welcome: 'Sample pattern loaded. Try “Photo to pattern” to chart your own picture.', widthSt: 'Width (stitches)', zoom: 'Zoom', zoomIn: 'Zoom in', zoomOut: 'Zoom out',
+    myCollection: 'My collection', collEmpty: 'Mark the Rico colors you own. They show up here for quick picking.', collEdit: 'Edit collection…',
+    collHint: 'Click the colors you own. A check mark means the color is in your collection. The collection is saved in this browser and used by the color picker and the photo importer.',
+    collCount: '{0} of {1} colors in your collection', collAll: 'Select all', collNone: 'Clear', collFromPattern: 'Add colors from this pattern',
+    collListLabel: 'Rico numbers (type or paste, then apply)', collApply: 'Apply list', collApplied: '{0} colors in your collection ({1} numbers not found)',
+    scopeAll: 'All Rico colors', scopeOwned: 'My collection ({0})', setupColl: 'Set up my collection', notOwned: 'Not in your collection', toBuyN: 'Colors to buy', owned: 'Owned', yes: 'yes', no: 'no',
+    'imp.palOwned': 'My collection ({0})', 'imp.suggest': 'Best fit', 'imp.suggestTip': 'Picks the number of colors after which extra colors barely improve the picture.',
+    'imp.quality': 'Match: {0}', 'imp.q1': 'rough', 'imp.q2': 'fair', 'imp.q3': 'good', 'imp.q4': 'very good', 'imp.q5': 'excellent', 'imp.suggested': 'suggested: {0} colors',
+    'imp.bestPossible': 'best possible', 'imp.poolSmall': 'Only {0} colors are available in this selection.', 'imp.collHint': 'Tip: mark the colors you own under File → My collection, then choose it here.',
   },
   de: {
     addColor: 'Farbe hinzufügen', added: '{0} hinzugefügt', anchorC: 'Mitte', anchorTL: 'Oben links', apply: 'Übernehmen',
@@ -2123,7 +2230,7 @@ const I18N = {
     'hint.back': 'Klicken startet eine Linie, erneut klicken setzt sie fort. Esc, Enter oder Rechtsklick beendet sie.', 'hint.bserase': 'Klicke oder ziehe über eine Rückstichlinie, um sie zu entfernen.',
     'hint.finish': 'Beenden / abbrechen', 'hint.pan': 'Ziehen verschiebt die Ansicht. Mausrad zoomt.', 'hint.pick': 'Klicke auf einen Stich oder eine Linie, um die Farbe zu übernehmen.',
     'hint.select': 'Ziehen wählt aus. Die Auswahl lässt sich verschieben. Enter setzt sie ab.', 'hint.shift': 'Umschalt erzwingt Quadrat oder Kreis.',
-    'imp.amt': 'Dithering-Stärke', 'imp.another': 'Anderes Foto wählen', 'imp.auto': 'Automatische Tonwerte', 'imp.bgAuto': 'Automatisch (Rand)', 'imp.bgPicked': 'Gewählt', 'imp.bgTol': 'Toleranz Hintergrund',
+    'imp.amt': 'Dithering-Stärke', 'imp.another': 'Anderes Foto wählen', 'imp.auto': 'Automatisch verbessern (Tonwerte dehnen)', 'imp.bgAuto': 'Automatisch (Rand)', 'imp.bgPicked': 'Gewählt', 'imp.bgTol': 'Toleranz Hintergrund',
     'imp.bright': 'Helligkeit', 'imp.choose': 'Foto wählen', 'imp.clean': 'Einzelstiche entfernen', 'imp.colors': 'Anzahl Farben', 'imp.cols': 'Farben', 'imp.contrast': 'Kontrast',
     'imp.create': 'Muster erstellen', 'imp.created': 'Muster erstellt: {0} Rico-Farben, {1} Stiche.', 'imp.cropHint': 'Ziehen zum Zuschneiden', 'imp.dNone': 'Aus (flache Farben)', 'imp.dither': 'Dithering',
     'imp.dropHint': 'Foto hierher ziehen, einfügen oder eine Datei wählen. Es bleibt auf deinem Gerät.', 'imp.dropTitle': 'Aus einem Foto ein Zählmuster machen', 'imp.fullImage': 'Ganzes Bild',
@@ -2154,6 +2261,14 @@ const I18N = {
     'tool.pan': 'Ansicht verschieben', 'tool.bsdraw': 'Rückstich zeichnen', 'tool.bserase': 'Rückstich löschen', 'tool.bspick': 'Farbe aufnehmen', totalSkeins: 'Stränge gesamt (ca.)', undo: 'Rückgängig', units: 'Felder',
     untitled: 'Unbenanntes Muster', viewBlocks: 'Blöcke', viewBoth: 'Beides', viewMode: 'Ansicht', viewSymbols: 'Symbole', viewThreads: 'Garn',
     welcome: 'Beispielmuster geladen. Probiere „Foto → Muster“ für dein eigenes Bild.', widthSt: 'Breite (Stiche)', zoom: 'Zoom', zoomIn: 'Vergrößern', zoomOut: 'Verkleinern',
+    myCollection: 'Meine Sammlung', collEmpty: 'Markiere die Rico-Farben, die du besitzt. Sie erscheinen hier zur schnellen Auswahl.', collEdit: 'Sammlung bearbeiten …',
+    collHint: 'Klicke auf die Farben, die du besitzt. Ein Haken bedeutet: Die Farbe ist in deiner Sammlung. Die Sammlung wird in diesem Browser gespeichert und vom Farbwähler und vom Foto-Import genutzt.',
+    collCount: '{0} von {1} Farben in deiner Sammlung', collAll: 'Alle wählen', collNone: 'Leeren', collFromPattern: 'Farben dieses Musters hinzufügen',
+    collListLabel: 'Rico-Nummern (eintippen oder einfügen, dann übernehmen)', collApply: 'Liste übernehmen', collApplied: '{0} Farben in deiner Sammlung ({1} Nummern nicht gefunden)',
+    scopeAll: 'Alle Rico-Farben', scopeOwned: 'Meine Sammlung ({0})', setupColl: 'Meine Sammlung einrichten', notOwned: 'Nicht in deiner Sammlung', toBuyN: 'Farben zu kaufen', owned: 'Vorhanden', yes: 'ja', no: 'nein',
+    'imp.palOwned': 'Meine Sammlung ({0})', 'imp.suggest': 'Beste Wahl', 'imp.suggestTip': 'Wählt die Farbanzahl, ab der weitere Farben das Bild kaum noch verbessern.',
+    'imp.quality': 'Übereinstimmung: {0}', 'imp.q1': 'grob', 'imp.q2': 'ordentlich', 'imp.q3': 'gut', 'imp.q4': 'sehr gut', 'imp.q5': 'ausgezeichnet', 'imp.suggested': 'empfohlen: {0} Farben',
+    'imp.bestPossible': 'bestmöglich', 'imp.poolSmall': 'In dieser Auswahl sind nur {0} Farben verfügbar.', 'imp.collHint': 'Tipp: Markiere die Farben, die du besitzt, unter Datei → Meine Sammlung und wähle sie dann hier.',
   },
 };
 let lang = (LS.get('sa.lang') || (navigator.language || 'en').slice(0, 2)) === 'de' ? 'de' : 'en';
@@ -2191,13 +2306,13 @@ function wireTopbar() {
   $('btnPhoto').onclick = () => openImporter(); $('btnExport').onclick = openExport; $('btnHelp').onclick = openHelp;
   $('btnLang').onclick = () => { lang = lang === 'de' ? 'en' : 'de'; LS.set('sa.lang', lang); applyLang(); };
   $('btnFile').onclick = e => showMenu(e.currentTarget, [
-    { icon: 'plus', label: t('newPattern'), fn: openNewDialog }, { icon: 'file', label: t('myPatterns'), fn: openProjects }, { icon: 'file', label: t('openFile'), fn: () => $('fileOpen').click() },
+    { icon: 'plus', label: t('newPattern'), fn: openNewDialog }, { icon: 'file', label: t('myPatterns'), fn: openProjects }, { icon: 'check', label: t('myCollection') + '…', fn: () => openColorPicker({ mode: 'collection' }) }, { icon: 'file', label: t('openFile'), fn: () => $('fileOpen').click() },
     { icon: 'export', label: t('saveFile'), sub: 'Ctrl+S', fn: exportProject }, { hr: true }, { icon: 'photo', label: t('photoBtn'), fn: () => openImporter() }, { icon: 'fit', label: t('resize'), fn: openResize }]);
   $('sideToggle').onclick = () => $('side').classList.toggle('open');
   $('title').addEventListener('input', e => { P.title = e.target.value; saveSoon(); });
   const tab = which => { $('panePal').hidden = which !== 'pal'; $('paneInfo').hidden = which !== 'info'; $('tabBtnPal').classList.toggle('on', which === 'pal'); $('tabBtnInfo').classList.toggle('on', which === 'info'); if (which === 'info') refreshInfo(); };
   $('tabBtnPal').onclick = () => tab('pal'); $('tabBtnInfo').onclick = () => tab('info');
-  $('btnAddColor').onclick = () => openColorPicker({ mode: 'add' }); $('btnCleanPal').onclick = cleanPalette;
+  $('btnAddColor').onclick = () => openColorPicker({ mode: 'add' }); $('btnEditColl').onclick = () => openColorPicker({ mode: 'collection' }); $('btnCleanPal').onclick = cleanPalette;
   $('fileOpen').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importProjectFile(f); });
   $('fileImg').addEventListener('change', e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -2212,7 +2327,7 @@ function boot() {
   new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   resizeCanvas(); new ResizeObserver(resizeCanvas).observe($('cvwrap'));
   const vm = LS.get('sa.view'); if (VIEW_MODES.some(x => x[0] === vm)) ui.viewMode = vm;
-  wireTopbar();
+  loadOwned(); wireTopbar();
   const last = LS.get('sa.last'), p = last ? loadProject(last) : null;
   if (p) setPattern(p); else { makeSample(); toast(t('welcome'), 5200); }
   applyLang(); fitView(); updateUndo();

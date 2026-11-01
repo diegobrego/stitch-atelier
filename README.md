@@ -8,7 +8,8 @@ It is a single file, `index.html`. There is nothing to install and no server: op
 
 - Draw patterns stitch by stitch: paint, erase, pick, line, rectangle and ellipse, fill, select / move / flip / rotate, half stitches, backstitch, mirror drawing, undo and redo.
 - Four views: threads, symbols, symbols on color, and flat blocks. Light and dark theme follow your system.
-- **Photo to pattern:** load a picture, crop it, choose the size in stitches and the number of colors. The importer only uses real Rico colors, with optional dithering, speck removal and background removal.
+- **Photo to pattern:** load a picture, crop it, choose the size in stitches and the number of colors. The importer picks the best-fitting real Rico colors for that count, so every smaller palette is a subset of a larger one. A "Best fit" button suggests the count after which extra colors barely help, and a match meter shows how close the result is to the best possible. Optional dithering, speck removal, background removal and gentle auto-enhance.
+- **My collection:** mark the Rico colors you own. The color picker can show only your colors (or all of them), the photo importer can build the pattern from your collection only, and colors you would still have to buy are marked in the palette and materials list. The collection is saved in your browser, and you can type or paste a list of Rico numbers.
 - Every color shows its Rico number with the DMC and Anchor equivalents. Search by any of the three, or match an arbitrary color to the nearest Rico colors.
 - Materials tab with stitch counts per color and an estimate of the skeins needed (fabric count and strands are adjustable).
 - Export a printable **PDF** (cover, color legend, chart pages), a **PNG** chart, a **CSV** material list, or a project file (`.json`) you can open again later.
